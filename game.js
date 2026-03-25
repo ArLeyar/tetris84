@@ -4,6 +4,7 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const nextCanvas = document.getElementById('next');
 const nextCtx = nextCanvas.getContext('2d');
+const wrap = document.getElementById('canvas-wrap');
 
 // Synthwave palette
 const COLORS = [
@@ -18,16 +19,15 @@ const COLORS = [
 ];
 const GLOW = [
   null,
-  'rgba(0,255,255,0.6)',
-  'rgba(255,0,122,0.6)',
-  'rgba(170,68,255,0.6)',
-  'rgba(255,77,166,0.6)',
-  'rgba(119,0,255,0.6)',
-  'rgba(255,136,68,0.6)',
-  'rgba(68,136,255,0.6)',
+  'rgba(0,255,255,0.7)',
+  'rgba(255,0,122,0.7)',
+  'rgba(170,68,255,0.7)',
+  'rgba(255,77,166,0.7)',
+  'rgba(119,0,255,0.7)',
+  'rgba(255,136,68,0.7)',
+  'rgba(68,136,255,0.7)',
 ];
 
-// Tetrominos (each rotation state)
 const SHAPES = [
   null,
   [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], // I
@@ -40,91 +40,183 @@ const SHAPES = [
 ];
 
 // === STATE ===
-let board, piece, nextPiece, score, level, lines, gameOver, paused, dropInterval, dropTimer, animFrame;
+let board = createBoard();
+let piece = null, nextPiece = null;
+let score = 0, level = 1, lines = 0;
+let gameOver = false, paused = false;
+let dropTimer = 0, animFrame = null, lastTime = 0;
+let combo = 0;
 let hiScore = parseInt(localStorage.getItem('tetris84_hi') || '0');
-let musicOn = false;
+let musicOn = true;
+let clearingRows = []; // rows being animated
+let clearAnim = 0;     // animation progress 0-1
+const CLEAR_DURATION = 300; // ms
 
-// === AUDIO (Web Audio API synthwave bass) ===
-let audioCtx, musicInterval;
+// === STARS BACKGROUND ===
+(function initStars() {
+  const container = document.getElementById('stars');
+  for (let i = 0; i < 60; i++) {
+    const star = document.createElement('div');
+    star.className = 'star';
+    star.style.left = Math.random() * 100 + '%';
+    star.style.top = Math.random() * 60 + '%';
+    star.style.setProperty('--dur', (2 + Math.random() * 4) + 's');
+    star.style.setProperty('--brightness', (0.3 + Math.random() * 0.7));
+    star.style.animationDelay = Math.random() * 4 + 's';
+    container.appendChild(star);
+  }
+})();
+
+// === AUDIO ENGINE ===
+let audioCtx = null;
+let masterGain = null;
 
 function initAudio() {
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.5;
+  masterGain.connect(audioCtx.destination);
 }
 
-function playNote(freq, duration, time, type = 'sawtooth', vol = 0.06) {
+function ensureAudio() {
+  if (!audioCtx) initAudio();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playNote(freq, duration, time, type = 'sawtooth', vol = 0.06, dest) {
   if (!audioCtx) return;
+  dest = dest || masterGain;
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
   const filter = audioCtx.createBiquadFilter();
   filter.type = 'lowpass';
-  filter.frequency.value = 1200;
+  filter.frequency.value = 1400;
+  filter.Q.value = 2;
   osc.type = type;
   osc.frequency.value = freq;
   gain.gain.setValueAtTime(vol, time);
   gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
   osc.connect(filter);
   filter.connect(gain);
-  gain.connect(audioCtx.destination);
+  gain.connect(dest);
   osc.start(time);
-  osc.stop(time + duration);
+  osc.stop(time + duration + 0.1);
 }
 
-// Synthwave arpeggio loop
-const BASS_NOTES = [55, 65.41, 73.42, 82.41]; // A1, C2, D2, E2
-const ARP_NOTES = [220, 261.63, 329.63, 392, 329.63, 261.63]; // Am arpeggio
+// Richer synthwave music: bass + arp + pad
+const BASS = [55, 55, 65.41, 65.41, 73.42, 73.42, 82.41, 82.41]; // Am progression, doubled
+const ARP  = [220, 329.63, 440, 523.25, 440, 329.63, 261.63, 329.63]; // Am7 arp
+const PAD_FREQS = [220, 261.63, 329.63]; // Am chord
+
+let musicTimer = null;
+let padOscs = [];
 
 function startMusic() {
-  if (!audioCtx) initAudio();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  ensureAudio();
   musicOn = true;
+  document.getElementById('music-status').textContent = 'ON';
   let beat = 0;
-  musicInterval = setInterval(() => {
+
+  // Pad (sustained chord)
+  padOscs = PAD_FREQS.map(freq => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 600;
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.value = 0.015;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    return { osc, gain };
+  });
+
+  musicTimer = setInterval(() => {
     if (paused || gameOver) return;
     const now = audioCtx.currentTime;
-    // Bass
-    playNote(BASS_NOTES[beat % BASS_NOTES.length], 0.3, now, 'sawtooth', 0.07);
-    // Arp
-    playNote(ARP_NOTES[beat % ARP_NOTES.length], 0.15, now, 'triangle', 0.04);
-    playNote(ARP_NOTES[(beat + 2) % ARP_NOTES.length], 0.15, now + 0.15, 'triangle', 0.03);
+
+    // Bass — deeper, fuller
+    playNote(BASS[beat % BASS.length], 0.25, now, 'sawtooth', 0.08);
+    playNote(BASS[beat % BASS.length] * 0.5, 0.25, now, 'triangle', 0.04); // sub
+
+    // Arp — 16th notes feel
+    const arpFreq = ARP[beat % ARP.length];
+    playNote(arpFreq, 0.12, now, 'triangle', 0.035);
+    playNote(arpFreq * 1.5, 0.1, now + 0.14, 'sine', 0.02);
+
+    // Hi-hat-ish noise on every other beat
+    if (beat % 2 === 0) {
+      const noise = audioCtx.createOscillator();
+      const ng = audioCtx.createGain();
+      const nf = audioCtx.createBiquadFilter();
+      nf.type = 'highpass';
+      nf.frequency.value = 8000;
+      noise.type = 'square';
+      noise.frequency.value = 6000 + Math.random() * 2000;
+      ng.gain.setValueAtTime(0.015, now);
+      ng.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+      noise.connect(nf);
+      nf.connect(ng);
+      ng.connect(masterGain);
+      noise.start(now);
+      noise.stop(now + 0.06);
+    }
+
     beat++;
-  }, 280);
+  }, 200);
 }
 
 function stopMusic() {
   musicOn = false;
-  clearInterval(musicInterval);
+  document.getElementById('music-status').textContent = 'OFF';
+  clearInterval(musicTimer);
+  padOscs.forEach(p => { try { p.osc.stop(); } catch(e) {} });
+  padOscs = [];
 }
 
+function toggleMusic() {
+  if (musicOn) stopMusic(); else startMusic();
+}
+
+// SFX
 function playSfx(type) {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
   if (type === 'clear') {
-    playNote(523.25, 0.1, now, 'square', 0.08);
-    playNote(659.25, 0.1, now + 0.08, 'square', 0.08);
-    playNote(783.99, 0.15, now + 0.16, 'square', 0.1);
+    playNote(523.25, 0.08, now, 'square', 0.1);
+    playNote(659.25, 0.08, now + 0.06, 'square', 0.1);
+    playNote(783.99, 0.12, now + 0.12, 'square', 0.12);
+  } else if (type === 'tetris') {
+    playNote(523.25, 0.1, now, 'square', 0.12);
+    playNote(659.25, 0.1, now + 0.08, 'square', 0.12);
+    playNote(783.99, 0.1, now + 0.16, 'square', 0.14);
+    playNote(1046.5, 0.2, now + 0.24, 'square', 0.15);
   } else if (type === 'drop') {
-    playNote(110, 0.08, now, 'triangle', 0.05);
+    playNote(150, 0.06, now, 'triangle', 0.06);
+    playNote(80, 0.08, now + 0.04, 'triangle', 0.04);
+  } else if (type === 'move') {
+    playNote(400, 0.03, now, 'sine', 0.02);
+  } else if (type === 'rotate') {
+    playNote(600, 0.04, now, 'sine', 0.03);
   } else if (type === 'gameover') {
-    playNote(196, 0.3, now, 'sawtooth', 0.08);
-    playNote(146.83, 0.4, now + 0.3, 'sawtooth', 0.06);
-    playNote(110, 0.6, now + 0.6, 'sawtooth', 0.05);
+    stopMusic();
+    playNote(196, 0.3, now, 'sawtooth', 0.1);
+    playNote(146.83, 0.4, now + 0.25, 'sawtooth', 0.08);
+    playNote(110, 0.6, now + 0.5, 'sawtooth', 0.06);
+    playNote(82.41, 0.8, now + 0.8, 'sawtooth', 0.04);
   }
 }
 
-// === PIECE ===
+// === PIECE LOGIC ===
 function createPiece(type) {
   const shape = SHAPES[type].map(r => [...r]);
-  return {
-    type,
-    shape,
-    x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2),
-    y: 0
-  };
+  return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
 }
 
-function randomType() {
-  return Math.floor(Math.random() * 7) + 1;
-}
+function randomType() { return Math.floor(Math.random() * 7) + 1; }
 
 function rotate(shape) {
   const rows = shape.length, cols = shape[0].length;
@@ -135,7 +227,6 @@ function rotate(shape) {
   return rotated;
 }
 
-// === COLLISION ===
 function collides(board, shape, ox, oy) {
   for (let r = 0; r < shape.length; r++)
     for (let c = 0; c < shape[r].length; c++) {
@@ -147,7 +238,6 @@ function collides(board, shape, ox, oy) {
   return false;
 }
 
-// === BOARD ===
 function createBoard() {
   return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
 }
@@ -159,70 +249,136 @@ function lock(board, p) {
         board[p.y + r][p.x + c] = p.type;
 }
 
-function clearLines(board) {
-  let cleared = 0;
-  for (let r = ROWS - 1; r >= 0; r--) {
-    if (board[r].every(c => c !== 0)) {
-      board.splice(r, 1);
-      board.unshift(Array(COLS).fill(0));
-      cleared++;
-      r++; // recheck row
-    }
+function findFullRows() {
+  const full = [];
+  for (let r = 0; r < ROWS; r++)
+    if (board[r].every(c => c !== 0)) full.push(r);
+  return full;
+}
+
+function removeRows(rows) {
+  rows.sort((a, b) => b - a);
+  for (const r of rows) {
+    board.splice(r, 1);
+    board.unshift(Array(COLS).fill(0));
   }
-  return cleared;
+}
+
+// === VISUAL FX ===
+function screenShake() {
+  wrap.classList.remove('shake');
+  void wrap.offsetWidth;
+  wrap.classList.add('shake');
+  setTimeout(() => wrap.classList.remove('shake'), 200);
+}
+
+function lineFlash() {
+  wrap.classList.remove('line-flash');
+  void wrap.offsetWidth;
+  wrap.classList.add('line-flash');
+  setTimeout(() => wrap.classList.remove('line-flash'), 400);
+}
+
+function showScorePopup(points, row, isTetris) {
+  const popup = document.createElement('div');
+  popup.className = 'score-popup' + (isTetris ? ' tetris' : '');
+  popup.textContent = isTetris ? 'TETRIS! +' + points : '+' + points;
+  popup.style.left = '50%';
+  popup.style.top = (row * BLOCK) + 'px';
+  popup.style.transform = 'translateX(-50%)';
+  document.getElementById('score-popups').appendChild(popup);
+  setTimeout(() => popup.remove(), 800);
+}
+
+function spawnParticles(row) {
+  const container = wrap;
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const color = COLORS[1 + Math.floor(Math.random() * 7)];
+    p.style.background = color;
+    p.style.boxShadow = `0 0 6px ${color}`;
+    p.style.left = Math.random() * 300 + 'px';
+    p.style.top = (row * BLOCK + BLOCK / 2) + 'px';
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 40 + Math.random() * 80;
+    p.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+    p.style.setProperty('--dy', Math.sin(angle) * dist - 30 + 'px');
+    p.style.setProperty('--dur', (0.4 + Math.random() * 0.4) + 's');
+    container.appendChild(p);
+    setTimeout(() => p.remove(), 800);
+  }
+}
+
+function flashValue(id) {
+  const el = document.getElementById(id);
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 300);
 }
 
 // === RENDERING ===
-function drawBlock(ctx, x, y, type, size = BLOCK, ghost = false) {
+function drawBlock(c, x, y, type, size = BLOCK, ghost = false, alpha = 1) {
   const color = COLORS[type];
   const glow = GLOW[type];
-  ctx.save();
+  c.save();
+  c.globalAlpha = alpha;
   if (ghost) {
-    ctx.globalAlpha = 0.2;
-    ctx.fillStyle = color;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-    ctx.strokeRect(x * size + 1, y * size + 1, size - 2, size - 2);
+    c.globalAlpha = 0.2;
+    c.fillStyle = color;
+    c.strokeStyle = color;
+    c.lineWidth = 1;
+    c.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+    c.strokeRect(x * size + 1, y * size + 1, size - 2, size - 2);
   } else {
-    ctx.shadowColor = glow;
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = color;
-    ctx.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-    // Inner highlight
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    ctx.fillRect(x * size + 2, y * size + 2, size - 4, 3);
+    c.shadowColor = glow;
+    c.shadowBlur = 14;
+    c.fillStyle = color;
+    c.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+    c.shadowBlur = 0;
+    // Top highlight
+    c.fillStyle = 'rgba(255,255,255,0.2)';
+    c.fillRect(x * size + 2, y * size + 2, size - 4, 3);
+    // Bottom shadow
+    c.fillStyle = 'rgba(0,0,0,0.2)';
+    c.fillRect(x * size + 2, y * size + size - 4, size - 4, 2);
   }
-  ctx.restore();
+  c.restore();
 }
 
 function drawBoard() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Grid lines
-  ctx.strokeStyle = 'rgba(255,0,122,0.06)';
+  // Grid
+  ctx.strokeStyle = 'rgba(255,0,122,0.05)';
   ctx.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
-    ctx.beginPath();
-    ctx.moveTo(c * BLOCK, 0);
-    ctx.lineTo(c * BLOCK, canvas.height);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(c * BLOCK, 0); ctx.lineTo(c * BLOCK, canvas.height); ctx.stroke();
   }
   for (let r = 1; r < ROWS; r++) {
-    ctx.beginPath();
-    ctx.moveTo(0, r * BLOCK);
-    ctx.lineTo(canvas.width, r * BLOCK);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, r * BLOCK); ctx.lineTo(canvas.width, r * BLOCK); ctx.stroke();
   }
 
   // Locked blocks
   for (let r = 0; r < ROWS; r++)
     for (let c = 0; c < COLS; c++)
-      if (board[r][c]) drawBlock(ctx, c, r, board[r][c]);
+      if (board[r][c]) {
+        const isClearingRow = clearingRows.includes(r);
+        const alpha = isClearingRow ? 1 - clearAnim : 1;
+        drawBlock(ctx, c, r, board[r][c], BLOCK, false, alpha);
+        // White flash overlay on clearing rows
+        if (isClearingRow) {
+          ctx.save();
+          ctx.globalAlpha = (1 - clearAnim) * 0.6;
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(c * BLOCK, r * BLOCK, BLOCK, BLOCK);
+          ctx.restore();
+        }
+      }
+
+  if (!piece) return;
 
   // Ghost piece
-  if (piece && !gameOver) {
+  if (!gameOver) {
     let ghostY = piece.y;
     while (!collides(board, piece.shape, piece.x, ghostY + 1)) ghostY++;
     if (ghostY !== piece.y) {
@@ -234,12 +390,10 @@ function drawBoard() {
   }
 
   // Current piece
-  if (piece) {
-    for (let r = 0; r < piece.shape.length; r++)
-      for (let c = 0; c < piece.shape[r].length; c++)
-        if (piece.shape[r][c] && piece.y + r >= 0)
-          drawBlock(ctx, piece.x + c, piece.y + r, piece.type);
-  }
+  for (let r = 0; r < piece.shape.length; r++)
+    for (let c = 0; c < piece.shape[r].length; c++)
+      if (piece.shape[r][c] && piece.y + r >= 0)
+        drawBlock(ctx, piece.x + c, piece.y + r, piece.type);
 }
 
 function drawNext() {
@@ -252,8 +406,6 @@ function drawNext() {
   for (let r = 0; r < s.length; r++)
     for (let c = 0; c < s[r].length; c++)
       if (s[r][c]) {
-        const bx = ox / size + c;
-        const by = oy / size + r;
         nextCtx.save();
         nextCtx.shadowColor = GLOW[nextPiece.type];
         nextCtx.shadowBlur = 10;
@@ -268,11 +420,19 @@ function updateUI() {
   document.getElementById('level').textContent = String(level).padStart(2, '0');
   document.getElementById('lines').textContent = String(lines).padStart(3, '0');
   document.getElementById('hiscore').textContent = String(hiScore).padStart(5, '0');
+
+  const comboBox = document.getElementById('combo-box');
+  if (combo > 1) {
+    comboBox.classList.add('active');
+    document.getElementById('combo').textContent = combo + 'x';
+  } else {
+    comboBox.classList.remove('active');
+  }
 }
 
 // === GAME LOGIC ===
 function getSpeed() {
-  return Math.max(80, 500 - (level - 1) * 40);
+  return Math.max(60, 500 - (level - 1) * 45);
 }
 
 function spawnPiece() {
@@ -288,72 +448,99 @@ function spawnPiece() {
       hiScore = score;
       localStorage.setItem('tetris84_hi', hiScore);
     }
-    showOverlay('GAME OVER');
+    showOverlay('GAME OVER', 'press enter to restart');
   }
   drawNext();
 }
 
+function handleClear(cleared) {
+  const pts = [0, 40, 100, 300, 1200];
+  const points = pts[cleared] * level;
+  score += points;
+  lines += cleared;
+  level = Math.floor(lines / 10) + 1;
+  combo++;
+
+  const isTetris = cleared === 4;
+  playSfx(isTetris ? 'tetris' : 'clear');
+  lineFlash();
+  flashValue('score');
+  if (cleared >= 2) flashValue('lines');
+
+  const midRow = clearingRows[Math.floor(clearingRows.length / 2)] || 10;
+  showScorePopup(points, midRow, isTetris);
+  clearingRows.forEach(r => spawnParticles(r));
+
+  if (isTetris) screenShake();
+}
+
 function drop() {
-  if (!piece || paused || gameOver) return;
+  if (!piece || paused || gameOver || clearingRows.length) return;
   if (!collides(board, piece.shape, piece.x, piece.y + 1)) {
     piece.y++;
   } else {
     lock(board, piece);
-    const cleared = clearLines(board);
-    if (cleared) {
-      const pts = [0, 40, 100, 300, 1200];
-      score += pts[cleared] * level;
-      lines += cleared;
-      level = Math.floor(lines / 10) + 1;
-      playSfx('clear');
+    const fullRows = findFullRows();
+    if (fullRows.length) {
+      clearingRows = fullRows;
+      clearAnim = 0;
+      // Animate, then remove rows and spawn next
+    } else {
+      combo = 0;
+      spawnPiece();
     }
-    spawnPiece();
   }
 }
 
 function hardDrop() {
-  if (!piece || paused || gameOver) return;
+  if (!piece || paused || gameOver || clearingRows.length) return;
+  let dropped = 0;
   while (!collides(board, piece.shape, piece.x, piece.y + 1)) {
     piece.y++;
-    score += 2;
+    dropped++;
   }
+  score += dropped * 2;
   playSfx('drop');
+  screenShake();
   lock(board, piece);
-  const cleared = clearLines(board);
-  if (cleared) {
-    const pts = [0, 40, 100, 300, 1200];
-    score += pts[cleared] * level;
-    lines += cleared;
-    level = Math.floor(lines / 10) + 1;
-    playSfx('clear');
+  const fullRows = findFullRows();
+  if (fullRows.length) {
+    clearingRows = fullRows;
+    clearAnim = 0;
+  } else {
+    combo = 0;
+    spawnPiece();
   }
-  spawnPiece();
 }
 
 function move(dir) {
   if (!piece || paused || gameOver) return;
-  if (!collides(board, piece.shape, piece.x + dir, piece.y))
+  if (!collides(board, piece.shape, piece.x + dir, piece.y)) {
     piece.x += dir;
+    playSfx('move');
+  }
 }
 
 function rotatePiece() {
   if (!piece || paused || gameOver) return;
   const rotated = rotate(piece.shape);
-  // Try normal, then wall kicks
   const kicks = [0, -1, 1, -2, 2];
   for (const kick of kicks) {
     if (!collides(board, rotated, piece.x + kick, piece.y)) {
       piece.shape = rotated;
       piece.x += kick;
+      playSfx('rotate');
       return;
     }
   }
 }
 
 // === OVERLAY ===
-function showOverlay(text) {
+function showOverlay(text, sub) {
   const el = document.getElementById('overlay');
   el.querySelector('.overlay-text').textContent = text;
+  const subEl = el.querySelector('.overlay-sub');
+  if (subEl) subEl.textContent = sub || '';
   el.classList.remove('hidden');
 }
 
@@ -362,14 +549,32 @@ function hideOverlay() {
 }
 
 // === GAME LOOP ===
-let lastTime = 0;
+let clearStartTime = 0;
 
 function gameLoop(time) {
   animFrame = requestAnimationFrame(gameLoop);
-  if (paused || gameOver) { drawBoard(); return; }
+  if (paused || gameOver) { drawBoard(); updateUI(); return; }
+
   const delta = time - lastTime;
-  dropTimer += delta;
   lastTime = time;
+
+  // Line clear animation
+  if (clearingRows.length) {
+    if (!clearStartTime) clearStartTime = time;
+    clearAnim = Math.min(1, (time - clearStartTime) / CLEAR_DURATION);
+    drawBoard();
+    if (clearAnim >= 1) {
+      handleClear(clearingRows.length);
+      removeRows(clearingRows);
+      clearingRows = [];
+      clearAnim = 0;
+      clearStartTime = 0;
+      spawnPiece();
+    }
+    return;
+  }
+
+  dropTimer += delta;
   if (dropTimer > getSpeed()) {
     drop();
     dropTimer = 0;
@@ -380,11 +585,15 @@ function gameLoop(time) {
 
 function startGame() {
   board = createBoard();
-  score = 0; level = 1; lines = 0;
+  score = 0; level = 1; lines = 0; combo = 0;
   gameOver = false; paused = false;
   dropTimer = 0; lastTime = performance.now();
-  piece = null;
-  nextPiece = null;
+  clearingRows = []; clearAnim = 0; clearStartTime = 0;
+  piece = null; nextPiece = null;
+
+  ensureAudio();
+  if (!musicOn) startMusic();
+
   spawnPiece();
   hideOverlay();
   updateUI();
@@ -394,24 +603,22 @@ function startGame() {
 // === INPUT ===
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
-    if (gameOver || !piece) {
-      if (!audioCtx) initAudio();
-      startGame();
-    }
+    if (gameOver || !piece) startGame();
     return;
   }
   if (e.key === 'p' || e.key === 'P' || e.key === 'з' || e.key === 'З') {
     if (!gameOver && piece) {
       paused = !paused;
-      if (paused) showOverlay('PAUSED');
+      if (paused) showOverlay('PAUSED', 'press P to continue');
       else { hideOverlay(); lastTime = performance.now(); }
     }
     return;
   }
   if (e.key === 'm' || e.key === 'M' || e.key === 'ь' || e.key === 'Ь') {
-    if (musicOn) stopMusic(); else startMusic();
+    toggleMusic();
     return;
   }
+  if (clearingRows.length) return; // block input during clear animation
   switch (e.key) {
     case 'ArrowLeft':  move(-1); break;
     case 'ArrowRight': move(1); break;

@@ -11,6 +11,7 @@
 <body>
   <div class="bg-grid"></div>
   <div class="bg-sun"></div>
+  <div class="bg-stars" id="stars"></div>
 
   <h1 class="title">TETRIS ／ 84</h1>
 
@@ -29,15 +30,26 @@
         <div class="panel-label">Lines</div>
         <div class="panel-value" id="lines">000</div>
       </div>
+      <div class="panel-box combo-box" id="combo-box">
+        <div class="panel-label">Combo</div>
+        <div class="panel-value combo-value" id="combo">0</div>
+      </div>
     </div>
 
     <!-- Main Canvas -->
-    <div class="canvas-wrap">
+    <div class="canvas-wrap" id="canvas-wrap">
       <canvas id="game" width="300" height="600"></canvas>
       <div class="scanlines"></div>
+      <div class="crt-flicker"></div>
       <div id="overlay" class="overlay">
-        <div class="overlay-text">PRESS ENTER</div>
+        <div class="overlay-content">
+          <div class="overlay-title">TETRIS ／ 84</div>
+          <div class="overlay-text">PRESS ENTER</div>
+          <div class="overlay-sub">music starts automatically</div>
+        </div>
       </div>
+      <!-- Score popup layer -->
+      <div id="score-popups" class="score-popups"></div>
     </div>
 
     <!-- Right Panel -->
@@ -49,6 +61,10 @@
       <div class="panel-box">
         <div class="panel-label">Hi-Score</div>
         <div class="panel-value" id="hiscore">00000</div>
+      </div>
+      <div class="panel-box">
+        <div class="panel-label">Music</div>
+        <div class="panel-value music-toggle" id="music-status">ON</div>
       </div>
       <div class="panel-box controls">
         <div><span>← →</span> move</div>
