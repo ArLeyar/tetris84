@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TETRIS ／ 84</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-sun"></div>
+
+  <h1 class="title">TETRIS ／ 84</h1>
+
+  <div class="game-wrapper">
+    <!-- Left Panel -->
+    <div class="panel">
+      <div class="panel-box">
+        <div class="panel-label">Score</div>
+        <div class="panel-value" id="score">00000</div>
+      </div>
+      <div class="panel-box">
+        <div class="panel-label">Level</div>
+        <div class="panel-value" id="level">01</div>
+      </div>
+      <div class="panel-box">
+        <div class="panel-label">Lines</div>
+        <div class="panel-value" id="lines">000</div>
+      </div>
+    </div>
+
+    <!-- Main Canvas -->
+    <div class="canvas-wrap">
+      <canvas id="game" width="300" height="600"></canvas>
+      <div class="scanlines"></div>
+      <div id="overlay" class="overlay">
+        <div class="overlay-text">PRESS ENTER</div>
+      </div>
+    </div>
+
+    <!-- Right Panel -->
+    <div class="panel">
+      <div class="panel-box">
+        <div class="panel-label">Next</div>
+        <canvas id="next" width="120" height="120"></canvas>
+      </div>
+      <div class="panel-box">
+        <div class="panel-label">Hi-Score</div>
+        <div class="panel-value" id="hiscore">00000</div>
+      </div>
+      <div class="panel-box controls">
+        <div><span>← →</span> move</div>
+        <div><span>↑</span> rotate</div>
+        <div><span>↓</span> soft drop</div>
+        <div><span>SPC</span> hard drop</div>
+        <div><span>P</span> pause</div>
+        <div><span>M</span> music</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>

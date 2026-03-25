@@ -1,0 +1,184 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0d0015;
+  color: #fff;
+  font-family: 'Share Tech Mono', monospace;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 20px;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Retrowave grid floor */
+.bg-grid {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 45vh;
+  background:
+    repeating-linear-gradient(90deg, rgba(255,0,122,0.12) 0, rgba(255,0,122,0.12) 1px, transparent 1px, transparent 50px),
+    repeating-linear-gradient(0deg, rgba(255,0,122,0.12) 0, rgba(255,0,122,0.12) 1px, transparent 1px, transparent 50px);
+  transform: perspective(200px) rotateX(40deg);
+  transform-origin: bottom center;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Sun */
+.bg-sun {
+  position: fixed;
+  top: 8%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 350px;
+  height: 350px;
+  background: radial-gradient(ellipse at center,
+    rgba(255, 100, 0, 0.2) 0%,
+    rgba(255, 0, 122, 0.15) 40%,
+    rgba(119, 0, 255, 0.08) 65%,
+    transparent 100%
+  );
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.title {
+  font-family: 'Orbitron', monospace;
+  font-size: 2.2rem;
+  font-weight: 900;
+  letter-spacing: 10px;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #ff007a 0%, #ff4da6 40%, #aa44ff 70%, #7700ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 25px rgba(255,0,122,0.6));
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+
+.game-wrapper {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  position: relative;
+  z-index: 1;
+}
+
+/* Panels */
+.panel {
+  width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-box {
+  border: 1px solid rgba(255,0,122,0.35);
+  background: rgba(255,0,122,0.04);
+  padding: 12px;
+  box-shadow: 0 0 12px rgba(255,0,122,0.08), inset 0 0 12px rgba(255,0,122,0.02);
+}
+
+.panel-label {
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: rgba(255, 77, 166, 0.6);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.panel-value {
+  font-size: 22px;
+  color: #ff4da6;
+  text-shadow: 0 0 12px #ff007a;
+  letter-spacing: 3px;
+}
+
+#next {
+  display: block;
+  margin: 0 auto;
+}
+
+.controls {
+  font-size: 9px;
+  color: rgba(255,77,166,0.35);
+  letter-spacing: 1px;
+  line-height: 2;
+}
+.controls span {
+  color: rgba(255,77,166,0.65);
+}
+
+/* Canvas wrapper */
+.canvas-wrap {
+  position: relative;
+  border: 1px solid rgba(255,0,122,0.45);
+  box-shadow:
+    0 0 40px rgba(255,0,122,0.12),
+    0 0 80px rgba(119,0,255,0.08),
+    inset 0 0 40px rgba(0,0,0,0.5);
+  background: rgba(0,0,0,0.6);
+  line-height: 0;
+}
+
+#game {
+  display: block;
+  position: relative;
+  z-index: 1;
+}
+
+.scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0,0,0,0.12) 3px,
+    rgba(0,0,0,0.12) 4px
+  );
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Overlay */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(13, 0, 21, 0.75);
+  z-index: 3;
+  transition: opacity 0.3s;
+}
+.overlay.hidden { opacity: 0; pointer-events: none; }
+
+.overlay-text {
+  font-family: 'Orbitron', monospace;
+  font-size: 1.4rem;
+  letter-spacing: 6px;
+  color: #ff4da6;
+  text-shadow: 0 0 20px #ff007a, 0 0 40px rgba(255,0,122,0.5);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Responsive */
+@media (max-width: 700px) {
+  .panel { width: 100px; }
+  .panel-value { font-size: 16px; }
+  .game-wrapper { gap: 12px; }
+  .title { font-size: 1.4rem; letter-spacing: 5px; }
+}
