@@ -765,7 +765,6 @@ function startGame() {
   piece = null; nextPiece = null;
 
   ensureAudio();
-  // Always restart music on new game
   startMusic();
 
   // Reset animation frame

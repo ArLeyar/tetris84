@@ -186,9 +186,21 @@ body {
   font-size: 28px;
 }
 
+.music-box {
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.music-box:hover {
+  border-color: rgba(255,0,122,0.6);
+  box-shadow: 0 0 20px rgba(255,0,122,0.15);
+}
+.music-box:active {
+  background: rgba(255,0,122,0.08);
+}
+
 .music-toggle {
   font-size: 14px;
-  cursor: pointer;
 }
 
 #next {
