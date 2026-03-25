@@ -6,37 +6,24 @@ const nextCanvas = document.getElementById('next');
 const nextCtx = nextCanvas.getContext('2d');
 const wrap = document.getElementById('canvas-wrap');
 
-// Synthwave palette
 const COLORS = [
-  null,
-  '#00ffff', // I - cyan
-  '#ff007a', // T - hot pink
-  '#aa44ff', // O - purple
-  '#ff4da6', // S - pink
-  '#7700ff', // Z - deep purple
-  '#ff8844', // L - orange
-  '#4488ff', // J - blue
+  null, '#00ffff', '#ff007a', '#aa44ff', '#ff4da6', '#7700ff', '#ff8844', '#4488ff',
 ];
 const GLOW = [
   null,
-  'rgba(0,255,255,0.7)',
-  'rgba(255,0,122,0.7)',
-  'rgba(170,68,255,0.7)',
-  'rgba(255,77,166,0.7)',
-  'rgba(119,0,255,0.7)',
-  'rgba(255,136,68,0.7)',
-  'rgba(68,136,255,0.7)',
+  'rgba(0,255,255,0.7)', 'rgba(255,0,122,0.7)', 'rgba(170,68,255,0.7)',
+  'rgba(255,77,166,0.7)', 'rgba(119,0,255,0.7)', 'rgba(255,136,68,0.7)', 'rgba(68,136,255,0.7)',
 ];
 
 const SHAPES = [
   null,
-  [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], // I
-  [[0,0,0],[0,2,0],[2,2,2]],                   // T
-  [[3,3],[3,3]],                                 // O
-  [[0,0,0],[0,4,4],[4,4,0]],                   // S
-  [[0,0,0],[5,5,0],[0,5,5]],                   // Z
-  [[0,0,0],[6,0,0],[6,6,6]],                   // L
-  [[0,0,0],[0,0,7],[7,7,7]],                   // J
+  [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+  [[0,0,0],[0,2,0],[2,2,2]],
+  [[3,3],[3,3]],
+  [[0,0,0],[0,4,4],[4,4,0]],
+  [[0,0,0],[5,5,0],[0,5,5]],
+  [[0,0,0],[6,0,0],[6,6,6]],
+  [[0,0,0],[0,0,7],[7,7,7]],
 ];
 
 // === STATE ===
@@ -47,12 +34,12 @@ let gameOver = false, paused = false;
 let dropTimer = 0, animFrame = null, lastTime = 0;
 let combo = 0;
 let hiScore = parseInt(localStorage.getItem('tetris84_hi') || '0');
-let musicOn = true;
-let clearingRows = []; // rows being animated
-let clearAnim = 0;     // animation progress 0-1
-const CLEAR_DURATION = 300; // ms
+let musicOn = false;
+let clearingRows = [];
+let clearAnim = 0;
+const CLEAR_DURATION = 300;
 
-// === STARS BACKGROUND ===
+// === STARS ===
 (function initStars() {
   const container = document.getElementById('stars');
   for (let i = 0; i < 60; i++) {
@@ -67,7 +54,9 @@ const CLEAR_DURATION = 300; // ms
   }
 })();
 
+// ============================================================
 // === AUDIO ENGINE ===
+// ============================================================
 let audioCtx = null;
 let masterGain = null;
 
@@ -83,9 +72,8 @@ function ensureAudio() {
   if (audioCtx.state === 'suspended') audioCtx.resume();
 }
 
-function playNote(freq, duration, time, type = 'sawtooth', vol = 0.06, dest) {
+function playNote(freq, duration, time, type = 'sawtooth', vol = 0.06) {
   if (!audioCtx) return;
-  dest = dest || masterGain;
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
   const filter = audioCtx.createBiquadFilter();
@@ -98,82 +86,272 @@ function playNote(freq, duration, time, type = 'sawtooth', vol = 0.06, dest) {
   gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
   osc.connect(filter);
   filter.connect(gain);
-  gain.connect(dest);
+  gain.connect(masterGain);
   osc.start(time);
   osc.stop(time + duration + 0.1);
+  osc.onended = () => { osc.disconnect(); filter.disconnect(); gain.disconnect(); };
 }
 
-// Richer synthwave music: bass + arp + pad
-const BASS = [55, 55, 65.41, 65.41, 73.42, 73.42, 82.41, 82.41]; // Am progression, doubled
-const ARP  = [220, 329.63, 440, 523.25, 440, 329.63, 261.63, 329.63]; // Am7 arp
-const PAD_FREQS = [220, 261.63, 329.63]; // Am chord
-
+// ============================================================
+// === SYNTHWAVE KOROBEINIKI ENGINE ===
+// ============================================================
 let musicTimer = null;
 let padOscs = [];
 
+// Korobeiniki melody — note frequencies and durations (in 16th-note units)
+// Part A (main theme)
+const MELODY_A = [
+  { f: 659.25, d: 2 }, // E5
+  { f: 493.88, d: 1 }, // B4
+  { f: 523.25, d: 1 }, // C5
+  { f: 587.33, d: 2 }, // D5
+  { f: 523.25, d: 1 }, // C5
+  { f: 493.88, d: 1 }, // B4
+  { f: 440.00, d: 2 }, // A4
+  { f: 440.00, d: 1 }, // A4
+  { f: 523.25, d: 1 }, // C5
+  { f: 659.25, d: 2 }, // E5
+  { f: 587.33, d: 1 }, // D5
+  { f: 523.25, d: 1 }, // C5
+  { f: 493.88, d: 2 }, // B4
+  { f: 493.88, d: 1 }, // B4
+  { f: 523.25, d: 1 }, // C5
+  { f: 587.33, d: 2 }, // D5
+  { f: 659.25, d: 2 }, // E5
+  { f: 523.25, d: 2 }, // C5
+  { f: 440.00, d: 2 }, // A4
+  { f: 440.00, d: 2 }, // A4
+];
+
+// Part B (second phrase)
+const MELODY_B = [
+  { f: 587.33, d: 3 }, // D5
+  { f: 698.46, d: 1 }, // F5
+  { f: 880.00, d: 2 }, // A5
+  { f: 783.99, d: 1 }, // G5
+  { f: 698.46, d: 1 }, // F5
+  { f: 659.25, d: 3 }, // E5
+  { f: 523.25, d: 1 }, // C5
+  { f: 659.25, d: 2 }, // E5
+  { f: 587.33, d: 1 }, // D5
+  { f: 523.25, d: 1 }, // C5
+  { f: 493.88, d: 2 }, // B4
+  { f: 493.88, d: 1 }, // B4
+  { f: 523.25, d: 1 }, // C5
+  { f: 587.33, d: 2 }, // D5
+  { f: 659.25, d: 2 }, // E5
+  { f: 523.25, d: 2 }, // C5
+  { f: 440.00, d: 2 }, // A4
+  { f: 440.00, d: 2 }, // A4
+];
+
+// Bass line follows chord roots (Am - E - Am - E | Am - E - Am-E | Dm - Am - E - Am)
+const BASS_A = [
+  { f: 110, d: 4 }, { f: 110, d: 4 },  // Am
+  { f: 164.81, d: 4 }, { f: 164.81, d: 4 },  // E
+  { f: 110, d: 4 }, { f: 110, d: 4 },  // Am
+  { f: 164.81, d: 4 }, { f: 164.81, d: 4 },  // E
+];
+const BASS_B = [
+  { f: 146.83, d: 4 }, { f: 146.83, d: 4 },  // Dm (D)
+  { f: 174.61, d: 4 }, { f: 174.61, d: 4 },  // F
+  { f: 130.81, d: 4 }, { f: 130.81, d: 4 },  // C (octave low)
+  { f: 164.81, d: 4 }, { f: 164.81, d: 4 },  // E
+];
+
+// Chord pads per section
+const CHORDS_A = [
+  [220, 261.63, 329.63],   // Am
+  [164.81, 246.94, 329.63], // E
+  [220, 261.63, 329.63],   // Am
+  [164.81, 246.94, 329.63], // E
+];
+const CHORDS_B = [
+  [146.83, 220, 293.66],   // Dm
+  [174.61, 220, 261.63],   // F
+  [130.81, 196, 261.63],   // C
+  [164.81, 246.94, 329.63], // E
+];
+
 function startMusic() {
+  if (musicTimer) stopMusic();
   ensureAudio();
   musicOn = true;
   document.getElementById('music-status').textContent = 'ON';
-  let beat = 0;
 
-  // Pad (sustained chord)
-  padOscs = PAD_FREQS.map(freq => {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    const filter = audioCtx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 600;
-    osc.type = 'sine';
-    osc.frequency.value = freq;
-    gain.gain.value = 0.015;
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(masterGain);
-    osc.start();
-    return { osc, gain };
-  });
+  let tick = 0; // 16th note counter
+  let loopCount = 0;
+
+  // Build full sequence: A A B B (then repeat)
+  const fullMelody = [...MELODY_A, ...MELODY_A, ...MELODY_B, ...MELODY_B];
+  const fullBass = [...BASS_A, ...BASS_A, ...BASS_B, ...BASS_B];
+
+  // Pre-calculate tick positions for melody and bass
+  function buildTickMap(notes) {
+    const map = [];
+    let t = 0;
+    for (const n of notes) {
+      map.push({ tick: t, f: n.f, d: n.d });
+      t += n.d;
+    }
+    return { map, totalTicks: t };
+  }
+
+  const mel = buildTickMap(fullMelody);
+  const bas = buildTickMap(fullBass);
+  const totalTicks = mel.totalTicks;
+
+  let currentChordIdx = -1;
+
+  function buildPad(chordNotes) {
+    padOscs.forEach(p => { try { p.osc.stop(); p.osc.disconnect(); p.gain.disconnect(); } catch(e) {} });
+    padOscs = [];
+    padOscs = chordNotes.map(freq => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 500 + loopCount * 80;
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.value = 0;
+      gain.gain.linearRampToValueAtTime(0.02, audioCtx.currentTime + 0.3);
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(masterGain);
+      osc.start();
+      return { osc, gain, filter };
+    });
+  }
+
+  const BPM = 140;
+  const sixteenthMs = (60000 / BPM) / 4; // ~107ms per 16th note
+  const sixteenthSec = sixteenthMs / 1000;
 
   musicTimer = setInterval(() => {
     if (paused || gameOver) return;
     const now = audioCtx.currentTime;
+    const pos = tick % totalTicks;
+    const intensity = Math.min(3, loopCount);
 
-    // Bass — deeper, fuller
-    playNote(BASS[beat % BASS.length], 0.25, now, 'sawtooth', 0.08);
-    playNote(BASS[beat % BASS.length] * 0.5, 0.25, now, 'triangle', 0.04); // sub
+    // Determine which section we're in (A1, A2, B1, B2)
+    const melodyALen = buildTickMap(MELODY_A).totalTicks;
+    const melodyBLen = buildTickMap(MELODY_B).totalTicks;
+    const sectionBStart = melodyALen * 2;
+    const inB = pos >= sectionBStart;
+    const chords = inB ? CHORDS_B : CHORDS_A;
+    const sectionPos = inB ? pos - sectionBStart : pos;
+    const chordIdx = Math.floor(sectionPos / 8) % chords.length;
 
-    // Arp — 16th notes feel
-    const arpFreq = ARP[beat % ARP.length];
-    playNote(arpFreq, 0.12, now, 'triangle', 0.035);
-    playNote(arpFreq * 1.5, 0.1, now + 0.14, 'sine', 0.02);
-
-    // Hi-hat-ish noise on every other beat
-    if (beat % 2 === 0) {
-      const noise = audioCtx.createOscillator();
-      const ng = audioCtx.createGain();
-      const nf = audioCtx.createBiquadFilter();
-      nf.type = 'highpass';
-      nf.frequency.value = 8000;
-      noise.type = 'square';
-      noise.frequency.value = 6000 + Math.random() * 2000;
-      ng.gain.setValueAtTime(0.015, now);
-      ng.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-      noise.connect(nf);
-      nf.connect(ng);
-      ng.connect(masterGain);
-      noise.start(now);
-      noise.stop(now + 0.06);
+    if (chordIdx !== currentChordIdx) {
+      currentChordIdx = chordIdx;
+      buildPad(chords[chordIdx]);
     }
 
-    beat++;
-  }, 200);
+    // Play melody notes at their tick positions
+    for (const n of mel.map) {
+      if (n.tick === pos) {
+        const dur = n.d * sixteenthSec * 0.9;
+        // Lead — sawtooth with filter for that synthwave feel
+        playNote(n.f, dur, now, 'sawtooth', 0.045 + intensity * 0.005);
+        // Octave doubling on later loops
+        if (intensity >= 2) {
+          playNote(n.f * 2, dur * 0.7, now, 'sine', 0.015);
+        }
+      }
+    }
+
+    // Play bass notes
+    for (const n of bas.map) {
+      if (n.tick === pos) {
+        const dur = n.d * sixteenthSec * 0.8;
+        playNote(n.f, dur, now, 'sawtooth', 0.06 + intensity * 0.01);
+        if (intensity >= 1) {
+          playNote(n.f * 0.5, dur, now, 'triangle', 0.03); // sub
+        }
+      }
+    }
+
+    // Drums — build up over loops
+    const beatPos = tick % 16;
+
+    // Kick on 1 and 9
+    if (beatPos === 0 || beatPos === 8) {
+      playNote(55, 0.15, now, 'sine', 0.08 + intensity * 0.01);
+    }
+
+    // Hi-hat pattern — evolves
+    if (intensity === 0 && beatPos % 4 === 0) {
+      hihat(now, 0.01);
+    } else if (intensity === 1 && beatPos % 2 === 0) {
+      hihat(now, 0.012);
+    } else if (intensity >= 2) {
+      hihat(now, 0.014);
+      if (beatPos % 2 === 1) hihat(now, 0.006); // ghost
+    }
+
+    // Snare on 4 and 12
+    if (intensity >= 1 && (beatPos === 4 || beatPos === 12)) {
+      snare(now, 0.035 + intensity * 0.008);
+    }
+
+    // Snare fill every 32 ticks
+    if (intensity >= 2 && tick % 32 >= 28) {
+      snare(now, 0.02);
+    }
+
+    tick++;
+    if (tick % totalTicks === 0) loopCount++;
+  }, sixteenthMs);
+}
+
+function hihat(time, vol) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'highpass';
+  filter.frequency.value = 8000;
+  osc.type = 'square';
+  osc.frequency.value = 6000 + Math.random() * 3000;
+  gain.gain.setValueAtTime(vol, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
+  osc.connect(filter);
+  filter.connect(gain);
+  gain.connect(masterGain);
+  osc.start(time);
+  osc.stop(time + 0.05);
+  osc.onended = () => { osc.disconnect(); filter.disconnect(); gain.disconnect(); };
+}
+
+function snare(time, vol) {
+  // Noise burst + tone
+  const noise = audioCtx.createOscillator();
+  const ng = audioCtx.createGain();
+  const nf = audioCtx.createBiquadFilter();
+  nf.type = 'bandpass';
+  nf.frequency.value = 4000;
+  nf.Q.value = 0.5;
+  noise.type = 'sawtooth';
+  noise.frequency.value = 3000 + Math.random() * 2000;
+  ng.gain.setValueAtTime(vol, time);
+  ng.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+  noise.connect(nf);
+  nf.connect(ng);
+  ng.connect(masterGain);
+  noise.start(time);
+  noise.stop(time + 0.15);
+  noise.onended = () => { noise.disconnect(); nf.disconnect(); ng.disconnect(); };
+
+  // Tone body
+  playNote(180, 0.08, time, 'triangle', vol * 0.6);
 }
 
 function stopMusic() {
   musicOn = false;
   document.getElementById('music-status').textContent = 'OFF';
   clearInterval(musicTimer);
-  padOscs.forEach(p => { try { p.osc.stop(); } catch(e) {} });
+  musicTimer = null;
+  padOscs.forEach(p => { try { p.osc.stop(); p.osc.disconnect(); p.gain.disconnect(); } catch(e) {} });
   padOscs = [];
 }
 
@@ -291,7 +469,6 @@ function showScorePopup(points, row, isTetris) {
 }
 
 function spawnParticles(row) {
-  const container = wrap;
   for (let i = 0; i < 20; i++) {
     const p = document.createElement('div');
     p.className = 'particle';
@@ -305,7 +482,7 @@ function spawnParticles(row) {
     p.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
     p.style.setProperty('--dy', Math.sin(angle) * dist - 30 + 'px');
     p.style.setProperty('--dur', (0.4 + Math.random() * 0.4) + 's');
-    container.appendChild(p);
+    wrap.appendChild(p);
     setTimeout(() => p.remove(), 800);
   }
 }
@@ -318,27 +495,23 @@ function flashValue(id) {
 
 // === RENDERING ===
 function drawBlock(c, x, y, type, size = BLOCK, ghost = false, alpha = 1) {
-  const color = COLORS[type];
-  const glow = GLOW[type];
   c.save();
   c.globalAlpha = alpha;
   if (ghost) {
     c.globalAlpha = 0.2;
-    c.fillStyle = color;
-    c.strokeStyle = color;
+    c.fillStyle = COLORS[type];
+    c.strokeStyle = COLORS[type];
     c.lineWidth = 1;
     c.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
     c.strokeRect(x * size + 1, y * size + 1, size - 2, size - 2);
   } else {
-    c.shadowColor = glow;
+    c.shadowColor = GLOW[type];
     c.shadowBlur = 14;
-    c.fillStyle = color;
+    c.fillStyle = COLORS[type];
     c.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
     c.shadowBlur = 0;
-    // Top highlight
     c.fillStyle = 'rgba(255,255,255,0.2)';
     c.fillRect(x * size + 2, y * size + 2, size - 4, 3);
-    // Bottom shadow
     c.fillStyle = 'rgba(0,0,0,0.2)';
     c.fillRect(x * size + 2, y * size + size - 4, size - 4, 2);
   }
@@ -348,7 +521,6 @@ function drawBlock(c, x, y, type, size = BLOCK, ghost = false, alpha = 1) {
 function drawBoard() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Grid
   ctx.strokeStyle = 'rgba(255,0,122,0.05)';
   ctx.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
@@ -358,14 +530,12 @@ function drawBoard() {
     ctx.beginPath(); ctx.moveTo(0, r * BLOCK); ctx.lineTo(canvas.width, r * BLOCK); ctx.stroke();
   }
 
-  // Locked blocks
   for (let r = 0; r < ROWS; r++)
     for (let c = 0; c < COLS; c++)
       if (board[r][c]) {
         const isClearingRow = clearingRows.includes(r);
         const alpha = isClearingRow ? 1 - clearAnim : 1;
         drawBlock(ctx, c, r, board[r][c], BLOCK, false, alpha);
-        // White flash overlay on clearing rows
         if (isClearingRow) {
           ctx.save();
           ctx.globalAlpha = (1 - clearAnim) * 0.6;
@@ -377,7 +547,6 @@ function drawBoard() {
 
   if (!piece) return;
 
-  // Ghost piece
   if (!gameOver) {
     let ghostY = piece.y;
     while (!collides(board, piece.shape, piece.x, ghostY + 1)) ghostY++;
@@ -389,7 +558,6 @@ function drawBoard() {
     }
   }
 
-  // Current piece
   for (let r = 0; r < piece.shape.length; r++)
     for (let c = 0; c < piece.shape[r].length; c++)
       if (piece.shape[r][c] && piece.y + r >= 0)
@@ -449,6 +617,7 @@ function spawnPiece() {
       localStorage.setItem('tetris84_hi', hiScore);
     }
     showOverlay('GAME OVER', 'press enter to restart');
+    return;
   }
   drawNext();
 }
@@ -475,20 +644,21 @@ function handleClear(cleared) {
 }
 
 function drop() {
-  if (!piece || paused || gameOver || clearingRows.length) return;
+  if (!piece || paused || gameOver || clearingRows.length) return false;
   if (!collides(board, piece.shape, piece.x, piece.y + 1)) {
     piece.y++;
+    return true;
   } else {
     lock(board, piece);
     const fullRows = findFullRows();
     if (fullRows.length) {
       clearingRows = fullRows;
       clearAnim = 0;
-      // Animate, then remove rows and spawn next
     } else {
       combo = 0;
       spawnPiece();
     }
+    return false;
   }
 }
 
@@ -523,6 +693,7 @@ function move(dir) {
 
 function rotatePiece() {
   if (!piece || paused || gameOver) return;
+  if (piece.type === 3) return; // O-piece — no visible rotation
   const rotated = rotate(piece.shape);
   const kicks = [0, -1, 1, -2, 2];
   for (const kick of kicks) {
@@ -553,12 +724,14 @@ let clearStartTime = 0;
 
 function gameLoop(time) {
   animFrame = requestAnimationFrame(gameLoop);
+
+  if (!lastTime) { lastTime = time; return; } // skip first frame to avoid delta spike
+
   if (paused || gameOver) { drawBoard(); updateUI(); return; }
 
   const delta = time - lastTime;
   lastTime = time;
 
-  // Line clear animation
   if (clearingRows.length) {
     if (!clearStartTime) clearStartTime = time;
     clearAnim = Math.min(1, (time - clearStartTime) / CLEAR_DURATION);
@@ -587,20 +760,27 @@ function startGame() {
   board = createBoard();
   score = 0; level = 1; lines = 0; combo = 0;
   gameOver = false; paused = false;
-  dropTimer = 0; lastTime = performance.now();
+  dropTimer = 0; lastTime = 0;
   clearingRows = []; clearAnim = 0; clearStartTime = 0;
   piece = null; nextPiece = null;
 
   ensureAudio();
-  if (!musicOn) startMusic();
+  // Always restart music on new game
+  startMusic();
+
+  // Reset animation frame
+  if (animFrame) cancelAnimationFrame(animFrame);
+  animFrame = null;
 
   spawnPiece();
   hideOverlay();
   updateUI();
-  if (!animFrame) animFrame = requestAnimationFrame(gameLoop);
+  animFrame = requestAnimationFrame(gameLoop);
 }
 
 // === INPUT ===
+const GAME_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', ' ']);
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     if (gameOver || !piece) startGame();
@@ -610,7 +790,7 @@ document.addEventListener('keydown', (e) => {
     if (!gameOver && piece) {
       paused = !paused;
       if (paused) showOverlay('PAUSED', 'press P to continue');
-      else { hideOverlay(); lastTime = performance.now(); }
+      else { hideOverlay(); lastTime = 0; }
     }
     return;
   }
@@ -618,15 +798,14 @@ document.addEventListener('keydown', (e) => {
     toggleMusic();
     return;
   }
-  if (clearingRows.length) return; // block input during clear animation
+  if (clearingRows.length) return;
   switch (e.key) {
-    case 'ArrowLeft':  move(-1); break;
-    case 'ArrowRight': move(1); break;
-    case 'ArrowDown':  drop(); score += 1; break;
-    case 'ArrowUp':    rotatePiece(); break;
-    case ' ':          hardDrop(); break;
+    case 'ArrowLeft':  move(-1); e.preventDefault(); break;
+    case 'ArrowRight': move(1); e.preventDefault(); break;
+    case 'ArrowDown':  if (drop()) score += 1; e.preventDefault(); break;
+    case 'ArrowUp':    rotatePiece(); e.preventDefault(); break;
+    case ' ':          hardDrop(); e.preventDefault(); break;
   }
-  e.preventDefault();
 });
 
 // === INIT ===
